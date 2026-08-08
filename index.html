@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Câmara do Eco · 扬子中文</title>
+  <style>
+    :root {
+      --vinho: #5B0805;
+      --bordo: #420505;
+      --vermelho: #8A0A09;
+      --ouro: #F5CB76;
+      --ouro-antigo: #D49455;
+      --bronze: #A93F16;
+      --marfim: #FFF5D6;
+      --creme: #FBE9B3;
+      --verde: #2E704B;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      min-height: 100%;
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      background:
+        radial-gradient(circle at 50% 15%, rgba(245,203,118,.16), transparent 35%),
+        linear-gradient(145deg, var(--vinho), var(--bordo));
+      color: var(--vinho);
+    }
+
+    body {
+      display: grid;
+      place-items: center;
+      padding: 22px;
+    }
+
+    .painel {
+      width: min(100%, 470px);
+      background: linear-gradient(180deg, #fff8df, #f8dda0);
+      border: 3px solid var(--ouro);
+      border-radius: 28px;
+      box-shadow: 0 22px 70px rgba(30, 0, 0, .42);
+      padding: 28px 24px 24px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .painel::before,
+    .painel::after {
+      content: "";
+      position: absolute;
+      width: 170px;
+      height: 170px;
+      border: 1px solid rgba(169,63,22,.12);
+      border-radius: 50%;
+    }
+
+    .painel::before { top: -105px; left: -85px; }
+    .painel::after { bottom: -110px; right: -90px; }
+
+    .selo {
+      width: 82px;
+      height: 82px;
+      margin: 0 auto 10px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      color: var(--ouro);
+      background: var(--vinho);
+      border: 2px solid var(--ouro-antigo);
+      box-shadow: 0 8px 24px rgba(91,8,5,.28);
+      font-size: 34px;
+    }
+
+    .marca {
+      margin: 0;
+      font-size: 13px;
+      letter-spacing: .22em;
+      text-transform: uppercase;
+      color: var(--bronze);
+    }
+
+    h1 {
+      margin: 8px 0 0;
+      font-size: 30px;
+      color: var(--vinho);
+    }
+
+    .chines {
+      margin-top: 4px;
+      color: var(--vermelho);
+      font-size: 17px;
+      letter-spacing: .12em;
+    }
+
+    .alvo {
+      margin: 24px 0 16px;
+      padding: 22px 16px;
+      border-radius: 20px;
+      border: 1px solid rgba(169,63,22,.26);
+      background: rgba(255,245,214,.74);
+    }
+
+    .hanzi {
+      font-family: "Microsoft YaHei", "Noto Sans SC", "PingFang SC", sans-serif;
+      font-size: 48px;
+      line-height: 1.15;
+      color: var(--vinho);
+      font-weight: 700;
+    }
+
+    .pinyin { margin-top: 8px; font-size: 20px; font-weight: 700; }
+    .traducao { margin-top: 4px; font-size: 15px; opacity: .82; }
+
+    .status {
+      min-height: 74px;
+      display: grid;
+      place-items: center;
+      margin: 14px 0;
+      padding: 14px;
+      border-radius: 16px;
+      border: 1px solid rgba(169,63,22,.22);
+      background: rgba(255,255,255,.38);
+      line-height: 1.45;
+    }
+
+    .status.ouvindo {
+      border-color: rgba(91,8,5,.42);
+      box-shadow: inset 0 0 0 1px rgba(245,203,118,.4);
+    }
+
+    .status.sucesso {
+      color: var(--verde);
+      border-color: rgba(46,112,75,.34);
+    }
+
+    button {
+      width: 100%;
+      border: 0;
+      border-radius: 15px;
+      padding: 15px 18px;
+      font: 700 16px Georgia, "Times New Roman", serif;
+      cursor: pointer;
+      transition: transform .16s ease, opacity .16s ease, box-shadow .16s ease;
+    }
+
+    button:hover:not(:disabled) { transform: translateY(-1px); }
+    button:disabled { opacity: .6; cursor: default; }
+
+    .principal {
+      color: var(--ouro);
+      background: linear-gradient(180deg, #8A0A09, #680704);
+      box-shadow: 0 9px 24px rgba(91,8,5,.25);
+    }
+
+    .secundario {
+      margin-top: 10px;
+      color: var(--vinho);
+      background: rgba(255,245,214,.72);
+      border: 1px solid var(--ouro-antigo);
+    }
+
+    .privacidade {
+      margin-top: 18px;
+      font-family: Arial, sans-serif;
+      font-size: 11px;
+      line-height: 1.45;
+      color: rgba(66,5,5,.72);
+    }
+
+    .onda {
+      display: inline-flex;
+      align-items: end;
+      gap: 3px;
+      height: 18px;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+
+    .onda i {
+      display: block;
+      width: 3px;
+      height: 5px;
+      border-radius: 10px;
+      background: currentColor;
+    }
+
+    .ouvindo .onda i { animation: pulsar .7s ease-in-out infinite alternate; }
+    .ouvindo .onda i:nth-child(2) { animation-delay: .12s; }
+    .ouvindo .onda i:nth-child(3) { animation-delay: .24s; }
+    .ouvindo .onda i:nth-child(4) { animation-delay: .36s; }
+
+    @keyframes pulsar {
+      from { height: 4px; }
+      to { height: 17px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="painel">
+    <div class="selo">🌸</div>
+    <p class="marca">Yangtze Mandarim</p>
+    <h1>Câmara do Eco</h1>
+    <div class="chines">回声阁 · Huíshēng Gé</div>
+
+    <section class="alvo" aria-label="Palavra para pronunciar">
+      <div id="hanzi" class="hanzi">汉语</div>
+      <div id="pinyin" class="pinyin">hànyǔ</div>
+      <div id="traducao" class="traducao">chinês</div>
+    </section>
+
+    <div id="status" class="status" aria-live="polite">
+      <div><strong>🎙️ Pronta para ouvir.</strong><br><small>Autorize o microfone e pronuncie a palavra uma vez.</small></div>
+    </div>
+
+    <button id="btnFalar" class="principal" type="button">🎙️ Autorizar e falar</button>
+    <button id="btnFechar" class="secundario" type="button">Fechar janela</button>
+
+    <div class="privacidade">
+      A Câmara do Eco não grava nem salva o áudio. Ela usa o reconhecimento de fala disponível no navegador e devolve à plataforma apenas o texto reconhecido.
+    </div>
+  </main>
+
+  <script>
+    (function() {
+      'use strict';
+
+      const parametros = new URLSearchParams(window.location.search);
+      const token = String(parametros.get('token') || '');
+      const hanzi = String(parametros.get('hanzi') || '');
+      const pinyin = String(parametros.get('pinyin') || '');
+      const traducao = String(parametros.get('traducao') || '');
+      const retornoInformado = String(parametros.get('retorno') || '');
+
+      const elHanzi = document.getElementById('hanzi');
+      const elPinyin = document.getElementById('pinyin');
+      const elTraducao = document.getElementById('traducao');
+      const status = document.getElementById('status');
+      const btnFalar = document.getElementById('btnFalar');
+      const btnFechar = document.getElementById('btnFechar');
+
+      elHanzi.textContent = hanzi || '汉语';
+      elPinyin.textContent = pinyin || '';
+      elTraducao.textContent = traducao || '';
+
+      let reconhecimento = null;
+      let recebeuResultado = false;
+
+      function origemRetorno_() {
+        if (/^https:\/\//i.test(retornoInformado)) return retornoInformado;
+        return '*';
+      }
+
+      function enviar_(tipo, dados) {
+        if (!window.opener || window.opener.closed) return false;
+
+        const pacote = Object.assign({
+          canal: 'yangtze-camara-eco',
+          tipo: tipo,
+          token: token
+        }, dados || {});
+
+        try {
+          window.opener.postMessage(pacote, origemRetorno_());
+          return true;
+        } catch (erro) {
+          try {
+            window.opener.postMessage(pacote, '*');
+            return true;
+          } catch (ignorar) {
+            return false;
+          }
+        }
+      }
+
+      function definirStatus_(html, classe) {
+        status.className = 'status' + (classe ? ' ' + classe : '');
+        status.innerHTML = html;
+      }
+
+      function mensagemErro_(motivo) {
+        const mapa = {
+          'not-allowed': 'O navegador não autorizou o microfone nesta página.',
+          'service-not-allowed': 'O serviço de reconhecimento de fala foi bloqueado pelo navegador.',
+          'audio-capture': 'Não encontrei um microfone disponível.',
+          'no-speech': 'Não ouvi fala suficiente. Aproxime-se do microfone e tente novamente.',
+          'network': 'O reconhecimento de fala encontrou um problema de rede.',
+          'aborted': 'A escuta foi interrompida.'
+        };
+        return mapa[motivo] || 'Não foi possível concluir o reconhecimento de fala.';
+      }
+
+      async function garantirMicrofone_() {
+        if (!window.isSecureContext) {
+          throw new Error('A Câmara do Eco precisa estar publicada em HTTPS.');
+        }
+
+        if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
+          throw new Error('Este navegador não disponibilizou acesso ao microfone.');
+        }
+
+        const fluxo = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          },
+          video: false
+        });
+
+        try {
+          fluxo.getTracks().forEach(function(trilha) { trilha.stop(); });
+        } catch (erro) {}
+      }
+
+      async function iniciar_() {
+        if (reconhecimento) return;
+
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+          const mensagem = 'Este navegador não oferece o reconhecimento de fala usado pelo Eco da Lótus.';
+          definirStatus_('<div><strong>🌱 Recurso indisponível.</strong><br><small>' + mensagem + '</small></div>');
+          enviar_('erro', { mensagem: mensagem, fallback: true });
+          return;
+        }
+
+        btnFalar.disabled = true;
+        btnFalar.textContent = '🎙️ Preparando microfone...';
+        definirStatus_('<div><strong>🎙️ Preparando o microfone.</strong><br><small>Na primeira vez, o navegador pode pedir sua autorização.</small></div>');
+
+        try {
+          await garantirMicrofone_();
+        } catch (erro) {
+          const mensagem = String(erro && erro.message || 'O microfone não pôde ser aberto.');
+          definirStatus_('<div><strong>🔒 Não consegui abrir o microfone.</strong><br><small>' + escapar_(mensagem) + '</small></div>');
+          btnFalar.disabled = false;
+          btnFalar.textContent = '🎙️ Tentar novamente';
+          enviar_('erro', { mensagem: mensagem, fallback: true });
+          return;
+        }
+
+        recebeuResultado = false;
+        reconhecimento = new SpeechRecognition();
+        reconhecimento.lang = 'zh-CN';
+        reconhecimento.continuous = false;
+        reconhecimento.interimResults = false;
+        reconhecimento.maxAlternatives = 5;
+
+        reconhecimento.onstart = function() {
+          btnFalar.textContent = '🎙️ Ouvindo...';
+          definirStatus_(
+            '<div><strong>🎙️ Estou ouvindo.</strong><span class="onda"><i></i><i></i><i></i><i></i></span><br>' +
+            '<small>Diga <b>' + escapar_(hanzi || 'a palavra') + '</b> com naturalidade.</small></div>',
+            'ouvindo'
+          );
+        };
+
+        reconhecimento.onresult = function(evento) {
+          recebeuResultado = true;
+          const alternativas = [];
+
+          for (let i = 0; i < evento.results.length; i++) {
+            const resultado = evento.results[i];
+            for (let j = 0; j < resultado.length; j++) {
+              const texto = String(resultado[j].transcript || '').trim();
+              if (texto && !alternativas.includes(texto)) alternativas.push(texto);
+            }
+          }
+
+          const transcricao = alternativas[0] || '';
+          definirStatus_(
+            '<div><strong>🏮 Eco reconhecido.</strong><br><small>Ouvi: <b>' + escapar_(transcricao || '—') + '</b></small></div>',
+            'sucesso'
+          );
+
+          enviar_('resultado', {
+            transcricao: transcricao,
+            alternativas: alternativas
+          });
+
+          btnFalar.textContent = '✅ Resultado enviado';
+          setTimeout(function() {
+            try { window.close(); } catch (erro) {}
+          }, 850);
+        };
+
+        reconhecimento.onerror = function(evento) {
+          const motivo = String(evento && evento.error || '').toLowerCase();
+          const mensagem = mensagemErro_(motivo);
+
+          definirStatus_('<div><strong>🌱 Não consegui reconhecer.</strong><br><small>' + escapar_(mensagem) + '</small></div>');
+          btnFalar.disabled = false;
+          btnFalar.textContent = '🎙️ Tentar novamente';
+          enviar_('erro', {
+            mensagem: mensagem,
+            fallback: motivo === 'not-allowed' || motivo === 'service-not-allowed' || motivo === 'audio-capture'
+          });
+        };
+
+        reconhecimento.onend = function() {
+          reconhecimento = null;
+          if (!recebeuResultado) {
+            btnFalar.disabled = false;
+            if (btnFalar.textContent === '🎙️ Ouvindo...') btnFalar.textContent = '🎙️ Tentar novamente';
+          }
+        };
+
+        try {
+          reconhecimento.start();
+        } catch (erro) {
+          reconhecimento = null;
+          const mensagem = 'O navegador não conseguiu iniciar a escuta. Tente novamente.';
+          definirStatus_('<div><strong>🌱 A escuta não iniciou.</strong><br><small>' + mensagem + '</small></div>');
+          btnFalar.disabled = false;
+          btnFalar.textContent = '🎙️ Tentar novamente';
+          enviar_('erro', { mensagem: mensagem, fallback: false });
+        }
+      }
+
+      function escapar_(texto) {
+        return String(texto || '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#039;');
+      }
+
+      btnFalar.addEventListener('click', iniciar_);
+      btnFechar.addEventListener('click', function() {
+        try {
+          if (reconhecimento) reconhecimento.abort();
+        } catch (erro) {}
+        window.close();
+      });
+
+      window.addEventListener('beforeunload', function() {
+        try {
+          if (reconhecimento) reconhecimento.abort();
+        } catch (erro) {}
+      });
+
+      enviar_('pronta', {});
+    })();
+  </script>
+</body>
+</html>
