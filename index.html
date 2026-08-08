@@ -213,14 +213,14 @@
     </section>
 
     <div id="status" class="status" aria-live="polite">
-      <div><strong>🎙️ Pronta para ouvir.</strong><br><small>Autorize o microfone e pronuncie a palavra uma vez.</small></div>
+      <div><strong>🎙️ Preparando a escuta.</strong><br><small>Esta página reconhece sua fala em chinês e volta automaticamente ao Yangtze.</small></div>
     </div>
 
     <button id="btnFalar" class="principal" type="button">🎙️ Autorizar e falar</button>
-    <button id="btnFechar" class="secundario" type="button">Fechar janela</button>
+    <button id="btnVoltar" class="secundario" type="button">← Voltar sem responder</button>
 
     <div class="privacidade">
-      A Câmara do Eco não grava nem salva o áudio. Ela usa o reconhecimento de fala disponível no navegador e devolve à plataforma apenas o texto reconhecido.
+      A Câmara do Eco não salva gravações. O áudio é usado somente durante esta tentativa; ao final, apenas o texto reconhecido retorna ao Yangtze.
     </div>
   </main>
 
@@ -240,7 +240,7 @@
       const elTraducao = document.getElementById('traducao');
       const status = document.getElementById('status');
       const btnFalar = document.getElementById('btnFalar');
-      const btnFechar = document.getElementById('btnFechar');
+      const btnVoltar = document.getElementById('btnVoltar');
 
       elHanzi.textContent = hanzi || '汉语';
       elPinyin.textContent = pinyin || '';
@@ -248,32 +248,59 @@
 
       let reconhecimento = null;
       let recebeuResultado = false;
+      let iniciando = false;
 
-      function origemRetorno_() {
-        if (/^https:\/\//i.test(retornoInformado)) return retornoInformado;
-        return '*';
+      function escapar_(texto) {
+        return String(texto || '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#039;');
       }
 
-      function enviar_(tipo, dados) {
-        if (!window.opener || window.opener.closed) return false;
-
-        const pacote = Object.assign({
-          canal: 'yangtze-camara-eco',
-          tipo: tipo,
-          token: token
-        }, dados || {});
-
+      function urlRetorno_() {
         try {
-          window.opener.postMessage(pacote, origemRetorno_());
-          return true;
+          const url = new URL(retornoInformado);
+          const host = String(url.hostname || '').toLowerCase();
+
+          if (url.protocol !== 'https:') return null;
+          if (host !== 'script.google.com' && host !== 'script.googleusercontent.com') return null;
+
+          return url;
         } catch (erro) {
-          try {
-            window.opener.postMessage(pacote, '*');
-            return true;
-          } catch (ignorar) {
-            return false;
-          }
+          return null;
         }
+      }
+
+      function voltarAoYangtze_(tipo, dados) {
+        const destino = urlRetorno_();
+
+        if (!destino) {
+          definirStatus_(
+            '<div><strong>🌱 Não encontrei o caminho de volta.</strong><br><small>Volte manualmente para a aba do Yangtze.</small></div>'
+          );
+          return;
+        }
+
+        dados = dados || {};
+        destino.searchParams.set('ecoRetorno', '1');
+        destino.searchParams.set('ecoToken', token);
+        destino.searchParams.set('ecoStatus', tipo);
+
+        if (dados.transcricao) {
+          destino.searchParams.set('ecoTranscricao', String(dados.transcricao));
+        }
+
+        if (Array.isArray(dados.alternativas) && dados.alternativas.length) {
+          destino.searchParams.set('ecoAlternativas', JSON.stringify(dados.alternativas));
+        }
+
+        if (dados.mensagem) {
+          destino.searchParams.set('ecoMensagem', String(dados.mensagem));
+        }
+
+        window.location.replace(destino.toString());
       }
 
       function definirStatus_(html, classe) {
@@ -312,33 +339,44 @@
         });
 
         try {
-          fluxo.getTracks().forEach(function(trilha) { trilha.stop(); });
+          fluxo.getTracks().forEach(function(trilha) {
+            trilha.stop();
+          });
         } catch (erro) {}
       }
 
       async function iniciar_() {
-        if (reconhecimento) return;
+        if (reconhecimento || iniciando) return;
+        iniciando = true;
 
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
         if (!SpeechRecognition) {
+          iniciando = false;
           const mensagem = 'Este navegador não oferece o reconhecimento de fala usado pelo Eco da Lótus.';
-          definirStatus_('<div><strong>🌱 Recurso indisponível.</strong><br><small>' + mensagem + '</small></div>');
-          enviar_('erro', { mensagem: mensagem, fallback: true });
+          definirStatus_(
+            '<div><strong>🌱 Recurso indisponível.</strong><br><small>' + escapar_(mensagem) + '</small></div>'
+          );
+          btnFalar.disabled = true;
           return;
         }
 
         btnFalar.disabled = true;
         btnFalar.textContent = '🎙️ Preparando microfone...';
-        definirStatus_('<div><strong>🎙️ Preparando o microfone.</strong><br><small>Na primeira vez, o navegador pode pedir sua autorização.</small></div>');
+        definirStatus_(
+          '<div><strong>🎙️ Preparando o microfone.</strong><br><small>Na primeira utilização neste endereço, o navegador pode pedir autorização.</small></div>'
+        );
 
         try {
           await garantirMicrofone_();
         } catch (erro) {
+          iniciando = false;
           const mensagem = String(erro && erro.message || 'O microfone não pôde ser aberto.');
-          definirStatus_('<div><strong>🔒 Não consegui abrir o microfone.</strong><br><small>' + escapar_(mensagem) + '</small></div>');
+          definirStatus_(
+            '<div><strong>🔒 Não consegui abrir o microfone.</strong><br><small>' + escapar_(mensagem) + '</small></div>'
+          );
           btnFalar.disabled = false;
           btnFalar.textContent = '🎙️ Tentar novamente';
-          enviar_('erro', { mensagem: mensagem, fallback: true });
           return;
         }
 
@@ -350,6 +388,7 @@
         reconhecimento.maxAlternatives = 5;
 
         reconhecimento.onstart = function() {
+          iniciando = false;
           btnFalar.textContent = '🎙️ Ouvindo...';
           definirStatus_(
             '<div><strong>🎙️ Estou ouvindo.</strong><span class="onda"><i></i><i></i><i></i><i></i></span><br>' +
@@ -372,39 +411,40 @@
 
           const transcricao = alternativas[0] || '';
           definirStatus_(
-            '<div><strong>🏮 Eco reconhecido.</strong><br><small>Ouvi: <b>' + escapar_(transcricao || '—') + '</b></small></div>',
+            '<div><strong>🏮 Eco reconhecido.</strong><br><small>Ouvi: <b>' + escapar_(transcricao || '—') + '</b><br>Voltando ao Yangtze...</small></div>',
             'sucesso'
           );
 
-          enviar_('resultado', {
-            transcricao: transcricao,
-            alternativas: alternativas
-          });
+          btnFalar.textContent = '✅ Reconhecido';
 
-          btnFalar.textContent = '✅ Resultado enviado';
           setTimeout(function() {
-            try { window.close(); } catch (erro) {}
-          }, 850);
+            voltarAoYangtze_('resultado', {
+              transcricao: transcricao,
+              alternativas: alternativas
+            });
+          }, 650);
         };
 
         reconhecimento.onerror = function(evento) {
+          iniciando = false;
           const motivo = String(evento && evento.error || '').toLowerCase();
           const mensagem = mensagemErro_(motivo);
 
-          definirStatus_('<div><strong>🌱 Não consegui reconhecer.</strong><br><small>' + escapar_(mensagem) + '</small></div>');
+          definirStatus_(
+            '<div><strong>🌱 Não consegui reconhecer.</strong><br><small>' + escapar_(mensagem) + '</small></div>'
+          );
           btnFalar.disabled = false;
           btnFalar.textContent = '🎙️ Tentar novamente';
-          enviar_('erro', {
-            mensagem: mensagem,
-            fallback: motivo === 'not-allowed' || motivo === 'service-not-allowed' || motivo === 'audio-capture'
-          });
         };
 
         reconhecimento.onend = function() {
           reconhecimento = null;
+          iniciando = false;
           if (!recebeuResultado) {
             btnFalar.disabled = false;
-            if (btnFalar.textContent === '🎙️ Ouvindo...') btnFalar.textContent = '🎙️ Tentar novamente';
+            if (btnFalar.textContent === '🎙️ Ouvindo...') {
+              btnFalar.textContent = '🎙️ Tentar novamente';
+            }
           }
         };
 
@@ -412,29 +452,22 @@
           reconhecimento.start();
         } catch (erro) {
           reconhecimento = null;
-          const mensagem = 'O navegador não conseguiu iniciar a escuta. Tente novamente.';
-          definirStatus_('<div><strong>🌱 A escuta não iniciou.</strong><br><small>' + mensagem + '</small></div>');
+          iniciando = false;
+          definirStatus_(
+            '<div><strong>🌱 A escuta não iniciou.</strong><br><small>Toque em “Tentar novamente”.</small></div>'
+          );
           btnFalar.disabled = false;
           btnFalar.textContent = '🎙️ Tentar novamente';
-          enviar_('erro', { mensagem: mensagem, fallback: false });
         }
       }
 
-      function escapar_(texto) {
-        return String(texto || '')
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;')
-          .replace(/'/g, '&#039;');
-      }
-
       btnFalar.addEventListener('click', iniciar_);
-      btnFechar.addEventListener('click', function() {
+      btnVoltar.addEventListener('click', function() {
         try {
           if (reconhecimento) reconhecimento.abort();
         } catch (erro) {}
-        window.close();
+
+        voltarAoYangtze_('cancelado', {});
       });
 
       window.addEventListener('beforeunload', function() {
@@ -443,7 +476,11 @@
         } catch (erro) {}
       });
 
-      enviar_('pronta', {});
+      // Tenta iniciar sozinho para deixar a travessia fluida.
+      // Se o navegador exigir uma ação extra, o botão permanece disponível.
+      setTimeout(function() {
+        iniciar_();
+      }, 500);
     })();
   </script>
 </body>
