@@ -244,7 +244,7 @@
     <button id="btnVoltar" class="secundario" type="button">← Voltar sem responder</button>
 
     <div class="privacidade">
-      A Câmara do Eco não salva gravações. O áudio é usado somente durante esta tentativa; ao final, apenas o texto reconhecido retorna ao Yangtze.<br><span id="versaoEco">Eco móvel v3.4</span>
+      A Câmara do Eco não salva gravações. O áudio é usado somente durante esta tentativa; ao final, apenas o texto reconhecido retorna ao Yangtze.<br><span id="versaoEco">Eco móvel v3.5</span>
     </div>
   </main>
 
@@ -252,9 +252,8 @@
     (function() {
       'use strict';
 
-      const VERSAO_ECO = '3.4-mobile-20260808-2110';
+      const VERSAO_ECO = '3.5-mobile-microfone-direto-20260808-2148';
       const DURACAO_JANELA_MS = 12000;
-      const INTERVALO_REINICIO_MS = 180;
 
       const parametros = new URLSearchParams(window.location.search);
       const token = String(parametros.get('token') || '');
@@ -274,14 +273,17 @@
       elHanzi.textContent = hanzi || '汉语';
       elPinyin.textContent = pinyin || '';
       elTraducao.textContent = traducao || '';
-      if (versaoEco) versaoEco.textContent = 'Eco móvel v3.4';
+      if (versaoEco) versaoEco.textContent = 'Eco móvel v3.5';
 
       let reconhecimento = null;
-      let escutaAtiva = false;
+      let streamMicrofone = null;
       let encerrado = false;
-      let prazoEscuta = 0;
+      let escutaAtiva = false;
       let transcricaoParcial = '';
       let temporizadorPrazo = null;
+      let audioIniciado = false;
+      let somDetectado = false;
+      let falaDetectada = false;
 
       function escapar_(texto) {
         return String(texto || '')
@@ -311,8 +313,17 @@
         const ouvido = normalizarFala_(texto);
         const esperado = normalizarFala_(hanzi);
         if (!ouvido || !esperado) return false;
-        if (/[\u3400-\u9fff]/.test(ouvido)) return ouvido === esperado;
-        if (pinyin) return normalizarPinyin_(ouvido) === normalizarPinyin_(pinyin);
+
+        // Se o reconhecimento devolveu Hanzi, a comparação é EXATA.
+        if (/[\u3400-\u9fff]/.test(ouvido)) {
+          return ouvido === esperado;
+        }
+
+        // Fallback somente quando o reconhecedor realmente devolve pinyin/latim.
+        if (pinyin) {
+          return normalizarPinyin_(ouvido) === normalizarPinyin_(pinyin);
+        }
+
         return false;
       }
 
@@ -334,6 +345,7 @@
           definirStatus_('<div><strong>🌱 Não encontrei o caminho de volta.</strong><br><small>Volte manualmente para a aba do Yangtze.</small></div>');
           return;
         }
+
         dados = dados || {};
         destino.searchParams.set('ecoRetorno', '1');
         destino.searchParams.set('ecoToken', token);
@@ -355,31 +367,50 @@
         }
       }
 
-      function abortarReconhecimento_() {
+      function liberarMicrofone_() {
+        if (!streamMicrofone) return;
+        try {
+          streamMicrofone.getTracks().forEach(function(track) {
+            try { track.stop(); } catch (erro) {}
+          });
+        } catch (erro) {}
+        streamMicrofone = null;
+      }
+
+      function limparReconhecimento_(abortar) {
         const atual = reconhecimento;
         reconhecimento = null;
         if (!atual) return;
         try {
           atual.onstart = null;
           atual.onaudiostart = null;
+          atual.onsoundstart = null;
           atual.onspeechstart = null;
+          atual.onspeechend = null;
+          atual.onsoundend = null;
+          atual.onaudioend = null;
           atual.onresult = null;
+          atual.onnomatch = null;
           atual.onerror = null;
           atual.onend = null;
-          atual.abort();
+          if (abortar) atual.abort();
         } catch (erro) {}
       }
 
-      function terminarSessaoEscuta_() {
+      function encerrarCaptura_(abortar) {
         escutaAtiva = false;
         limparTemporizador_();
-        abortarReconhecimento_();
+        limparReconhecimento_(abortar !== false);
+        liberarMicrofone_();
       }
 
       function prepararNovaTentativa_(mensagem) {
-        terminarSessaoEscuta_();
+        encerrarCaptura_(true);
         encerrado = false;
         transcricaoParcial = '';
+        audioIniciado = false;
+        somDetectado = false;
+        falaDetectada = false;
         btnFalar.disabled = false;
         btnFalar.textContent = '🎙️ Tentar novamente';
         definirStatus_(mensagem);
@@ -387,11 +418,12 @@
 
       function avaliarTranscricao_(texto) {
         if (encerrado) return;
+
         const transcricao = String(texto || '').trim();
         if (!transcricao) return;
 
         encerrado = true;
-        terminarSessaoEscuta_();
+        encerrarCaptura_(true);
 
         if (!falaCorrespondeAoAlvo_(transcricao)) {
           encerrado = false;
@@ -401,7 +433,7 @@
             '<div><strong>❌ Essa não é a palavra pedida.</strong><br>' +
             '<small>Esperado: <b>' + escapar_(hanzi || '—') + '</b><br>' +
             'Eu ouvi: <b>' + escapar_(transcricao) + '</b><br>' +
-            'Ouça o modelo e tente novamente.</small></div>'
+            'Tente novamente.</small></div>'
           );
           return;
         }
@@ -414,63 +446,164 @@
           'Eu ouvi: <b>' + escapar_(transcricao) + '</b><br>Voltando ao Yangtze...</small></div>',
           'sucesso'
         );
-        setTimeout(function() { voltarAoYangtze_('resultado', { transcricao: transcricao }); }, 800);
+
+        setTimeout(function() {
+          voltarAoYangtze_('resultado', { transcricao: transcricao });
+        }, 800);
       }
 
-      function expirarJanela_() {
+      function mensagemSemResultado_() {
+        if (!audioIniciado) {
+          return '<div><strong>🎙️ O navegador não iniciou a captura.</strong><br><small>Toque em “Tentar novamente”. Se aparecer uma permissão de microfone, escolha Permitir.</small></div>';
+        }
+        if (!somDetectado) {
+          return '<div><strong>🌱 O microfone abriu, mas não detectou som.</strong><br><small>Fale perto do aparelho e confira se o microfone do site está permitido.</small></div>';
+        }
+        if (!falaDetectada) {
+          return '<div><strong>🌱 O microfone ouviu som, mas não identificou fala.</strong><br><small>Tente dizer a palavra de forma contínua, sem esperar depois do toque.</small></div>';
+        }
+        return '<div><strong>🌱 Ouvi sua voz, mas o reconhecedor não devolveu texto.</strong><br><small>Isso é uma limitação do reconhecimento de fala deste navegador/aparelho. Toque em “Tentar novamente”.</small></div>';
+      }
+
+      function finalizarPorTempo_() {
         if (!escutaAtiva || encerrado) return;
+
         if (transcricaoParcial) {
           avaliarTranscricao_(transcricaoParcial);
           return;
         }
-        prepararNovaTentativa_(
-          '<div><strong>🌱 Não ouvi uma palavra completa.</strong><br>' +
-          '<small>Toque em “Tentar novamente” quando estiver pronta. A Câmara ficará disponível por até 12 segundos.</small></div>'
-        );
+
+        // Pede ao reconhecedor que finalize o que já captou antes de desistir.
+        const atual = reconhecimento;
+        if (atual) {
+          try {
+            atual.stop();
+            setTimeout(function() {
+              if (!encerrado && escutaAtiva && !transcricaoParcial) {
+                prepararNovaTentativa_(mensagemSemResultado_());
+              }
+            }, 1200);
+            return;
+          } catch (erro) {}
+        }
+
+        prepararNovaTentativa_(mensagemSemResultado_());
       }
 
-      function aindaHaTempo_() {
-        return escutaAtiva && !encerrado && Date.now() < prazoEscuta;
+      async function obterStreamMicrofone_() {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          throw new Error('getUserMedia-indisponivel');
+        }
+
+        return navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          },
+          video: false
+        });
       }
 
-      function iniciarCicloReconhecimento_() {
-        if (!aindaHaTempo_() || reconhecimento) return;
+      function criarReconhecimento_() {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SpeechRecognition) {
-          prepararNovaTentativa_('<div><strong>🌱 Recurso indisponível.</strong><br><small>Este navegador não oferece o reconhecimento de fala usado pelo Eco da Lótus.</small></div>');
+        if (!SpeechRecognition) return null;
+
+        const r = new SpeechRecognition();
+        r.lang = 'zh-CN';
+        // No celular, uma única sessão contínua é mais estável do que reiniciar
+        // o reconhecimento várias vezes sem um novo gesto do usuário.
+        r.continuous = true;
+        r.interimResults = true;
+        r.maxAlternatives = 1;
+        return r;
+      }
+
+      async function iniciar_() {
+        if (escutaAtiva || reconhecimento) return;
+
+        encerrado = false;
+        escutaAtiva = true;
+        transcricaoParcial = '';
+        audioIniciado = false;
+        somDetectado = false;
+        falaDetectada = false;
+
+        btnFalar.disabled = true;
+        btnFalar.textContent = '🎙️ Preparando microfone…';
+        definirStatus_(
+          '<div><strong>🎙️ Conectando diretamente ao microfone…</strong><br>' +
+          '<small>Quando aparecer “Microfone ativo”, fale normalmente.</small></div>',
+          'ouvindo'
+        );
+
+        try {
+          streamMicrofone = await obterStreamMicrofone_();
+        } catch (erro) {
+          escutaAtiva = false;
+          btnFalar.disabled = false;
+          btnFalar.textContent = '🎙️ Tentar novamente';
+
+          const nome = String(erro && erro.name || erro || '').toLowerCase();
+          if (nome.includes('notallowed') || nome.includes('permission') || nome.includes('security')) {
+            definirStatus_('<div><strong>🔒 O Chrome não liberou o microfone.</strong><br><small>Abra as permissões de <b>yangtzemandarim.github.io</b>, permita o microfone e tente novamente.</small></div>');
+          } else {
+            definirStatus_('<div><strong>🎙️ Não consegui conectar ao microfone.</strong><br><small>' + escapar_(erro && erro.message ? erro.message : erro) + '</small></div>');
+          }
+          return;
+        }
+
+        const track = streamMicrofone.getAudioTracks()[0];
+        if (!track || track.readyState !== 'live') {
+          prepararNovaTentativa_('<div><strong>🎙️ O microfone foi autorizado, mas não ficou ativo.</strong><br><small>Tente novamente.</small></div>');
+          return;
+        }
+
+        const r = criarReconhecimento_();
+        if (!r) {
+          prepararNovaTentativa_('<div><strong>🌱 Reconhecimento de fala indisponível.</strong><br><small>Este navegador não oferece o recurso usado pela Câmara do Eco.</small></div>');
           btnFalar.disabled = true;
           return;
         }
 
-        const r = new SpeechRecognition();
         reconhecimento = r;
-        r.lang = 'zh-CN';
-        r.continuous = false;
-        r.interimResults = true;
-        r.maxAlternatives = 1;
+        btnFalar.textContent = '🎙️ Escutando…';
 
         r.onstart = function() {
           definirStatus_(
-            '<div><strong>🎙️ Estou ouvindo — fale quando estiver pronta.</strong>' +
+            '<div><strong>🎙️ Reconhecedor iniciado.</strong>' +
             '<span class="onda"><i></i><i></i><i></i><i></i></span><br>' +
-            '<small>Alvo: <b>' + escapar_(hanzi || 'a palavra') + '</b>. Se o Android encerrar cedo, a escuta reinicia sozinha.</small></div>',
+            '<small>Aguardando o áudio do microfone…</small></div>',
             'ouvindo'
           );
         };
 
         r.onaudiostart = function() {
+          audioIniciado = true;
           definirStatus_(
-            '<div><strong>🎙️ Microfone ativo.</strong>' +
+            '<div><strong>🎙️ Microfone ativo — pode falar.</strong>' +
             '<span class="onda"><i></i><i></i><i></i><i></i></span><br>' +
-            '<small>Pode dizer <b>' + escapar_(hanzi || 'a palavra') + '</b>.</small></div>',
+            '<small>Diga <b>' + escapar_(hanzi || 'a palavra') + '</b>.</small></div>',
+            'ouvindo'
+          );
+        };
+
+        r.onsoundstart = function() {
+          somDetectado = true;
+          definirStatus_(
+            '<div><strong>🔊 Som detectado.</strong>' +
+            '<span class="onda"><i></i><i></i><i></i><i></i></span><br>' +
+            '<small>Continue falando normalmente.</small></div>',
             'ouvindo'
           );
         };
 
         r.onspeechstart = function() {
+          falaDetectada = true;
           definirStatus_(
-            '<div><strong>🌸 Estou ouvindo sua voz.</strong>' +
-            '<span class="onda"><i></i><i></i><i></i><i></i></span><br><small>Continue normalmente.</small></div>',
+            '<div><strong>🌸 Sua voz foi detectada.</strong>' +
+            '<span class="onda"><i></i><i></i><i></i><i></i></span><br>' +
+            '<small>Estou transformando sua fala em chinês…</small></div>',
             'ouvindo'
           );
         };
@@ -478,6 +611,7 @@
         r.onresult = function(evento) {
           let melhor = '';
           let final = false;
+
           for (let i = evento.resultIndex || 0; i < evento.results.length; i++) {
             const resultado = evento.results[i];
             if (!resultado || !resultado.length) continue;
@@ -485,73 +619,83 @@
             if (texto) melhor = texto;
             if (resultado.isFinal) final = true;
           }
+
           if (melhor) {
             transcricaoParcial = melhor;
             definirStatus_(
               '<div><strong>🎙️ Eu ouvi: ' + escapar_(melhor) + '</strong><br>' +
-              '<small>' + (final ? 'Conferindo com o alvo…' : 'Continue falando se ainda não terminou.') + '</small></div>',
+              '<small>' + (final ? 'Conferindo com a palavra pedida…' : 'Aguardando o resultado final…') + '</small></div>',
               'ouvindo'
             );
           }
-          if (final && melhor) avaliarTranscricao_(melhor);
+
+          if (final && melhor) {
+            avaliarTranscricao_(melhor);
+          }
+        };
+
+        r.onnomatch = function() {
+          if (!encerrado && escutaAtiva && !transcricaoParcial) {
+            definirStatus_(
+              '<div><strong>🌱 Ouvi o áudio, mas não consegui formar uma palavra.</strong><br>' +
+              '<small>Continue e tente pronunciar <b>' + escapar_(hanzi || 'a palavra') + '</b> novamente.</small></div>',
+              'ouvindo'
+            );
+          }
         };
 
         r.onerror = function(evento) {
           const motivo = String(evento && evento.error || '').toLowerCase();
-          if (reconhecimento === r) reconhecimento = null;
 
-          if ((motivo === 'no-speech' || motivo === 'aborted') && aindaHaTempo_()) {
-            setTimeout(iniciarCicloReconhecimento_, INTERVALO_REINICIO_MS);
-            return;
-          }
           if (motivo === 'not-allowed' || motivo === 'service-not-allowed') {
-            prepararNovaTentativa_('<div><strong>🔒 O microfone/reconhecimento foi bloqueado.</strong><br><small>Libere o microfone para yangtzemandarim.github.io e tente novamente.</small></div>');
+            prepararNovaTentativa_('<div><strong>🔒 O reconhecimento de fala foi bloqueado.</strong><br><small>Confira a permissão de microfone do Chrome e tente novamente.</small></div>');
             return;
           }
+
           if (motivo === 'audio-capture') {
-            prepararNovaTentativa_('<div><strong>🎙️ Não encontrei um microfone disponível.</strong><br><small>Verifique o aparelho e tente novamente.</small></div>');
+            prepararNovaTentativa_('<div><strong>🎙️ O reconhecimento não conseguiu usar o microfone.</strong><br><small>Feche outros aplicativos que possam estar usando o microfone e tente novamente.</small></div>');
             return;
           }
-          if (aindaHaTempo_()) setTimeout(iniciarCicloReconhecimento_, INTERVALO_REINICIO_MS);
-          else expirarJanela_();
+
+          if (motivo === 'network') {
+            prepararNovaTentativa_('<div><strong>🌐 O serviço de reconhecimento não respondeu.</strong><br><small>Confira a conexão com a internet e tente novamente.</small></div>');
+            return;
+          }
+
+          if (motivo === 'no-speech') {
+            prepararNovaTentativa_(mensagemSemResultado_());
+            return;
+          }
         };
 
         r.onend = function() {
-          if (reconhecimento === r) reconhecimento = null;
-          if (encerrado || !escutaAtiva) return;
+          if (reconhecimento !== r || encerrado || !escutaAtiva) return;
+          reconhecimento = null;
+
           if (transcricaoParcial) {
             avaliarTranscricao_(transcricaoParcial);
             return;
           }
-          if (aindaHaTempo_()) setTimeout(iniciarCicloReconhecimento_, INTERVALO_REINICIO_MS);
-          else expirarJanela_();
+
+          prepararNovaTentativa_(mensagemSemResultado_());
         };
 
-        try {
-          r.start();
-        } catch (erro) {
-          reconhecimento = null;
-          if (aindaHaTempo_()) setTimeout(iniciarCicloReconhecimento_, 300);
-          else expirarJanela_();
-        }
-      }
-
-      function iniciar_() {
-        if (escutaAtiva || reconhecimento) return;
-        encerrado = false;
-        escutaAtiva = true;
-        transcricaoParcial = '';
-        prazoEscuta = Date.now() + DURACAO_JANELA_MS;
-        btnFalar.disabled = true;
-        btnFalar.textContent = '🎙️ Escutando…';
-        definirStatus_(
-          '<div><strong>🎙️ Pode falar.</strong><br>' +
-          '<small>Você tem até 12 segundos para começar. No celular, a Câmara reabre a escuta automaticamente se o navegador encerrar cedo.</small></div>',
-          'ouvindo'
-        );
         limparTemporizador_();
-        temporizadorPrazo = setTimeout(expirarJanela_, DURACAO_JANELA_MS + 250);
-        iniciarCicloReconhecimento_();
+        temporizadorPrazo = setTimeout(finalizarPorTempo_, DURACAO_JANELA_MS);
+
+        try {
+          // A especificação Web Speech atual permite fornecer diretamente uma
+          // MediaStreamTrack. Navegadores antigos ignoram o argumento extra e
+          // continuam usando o microfone padrão.
+          r.start(track);
+        } catch (erroComTrack) {
+          try {
+            r.start();
+          } catch (erro) {
+            reconhecimento = null;
+            prepararNovaTentativa_('<div><strong>🌱 Não consegui iniciar o reconhecimento.</strong><br><small>' + escapar_(erro && erro.message ? erro.message : erro) + '</small></div>');
+          }
+        }
       }
 
       btnFalar.addEventListener('click', iniciar_);
