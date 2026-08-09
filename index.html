@@ -197,6 +197,30 @@
       from { height: 4px; }
       to { height: 17px; }
     }
+
+    @media (max-width: 640px) {
+      body {
+        display: block;
+        padding: 0;
+        min-height: 100dvh;
+      }
+
+      .painel {
+        width: 100%;
+        min-height: 100dvh;
+        border-radius: 0;
+        border-left: 0;
+        border-right: 0;
+        padding: 24px 18px 30px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+      }
+
+      .alvo { margin-top: 18px; }
+      .hanzi { font-size: 54px; }
+      button { min-height: 54px; }
+    }
   </style>
 </head>
 <body>
@@ -213,10 +237,10 @@
     </section>
 
     <div id="status" class="status" aria-live="polite">
-      <div><strong>🎙️ Preparando a escuta.</strong><br><small>Esta página reconhece sua fala em chinês e volta automaticamente ao Yangtze.</small></div>
+      <div><strong>🎙️ Quando estiver pronta, toque no botão.</strong><br><small>A escuta só começa depois do seu toque, para não cortar sua fala no celular.</small></div>
     </div>
 
-    <button id="btnFalar" class="principal" type="button">🎙️ Autorizar e falar</button>
+    <button id="btnFalar" class="principal" type="button">🎙️ Toque e fale</button>
     <button id="btnVoltar" class="secundario" type="button">← Voltar sem responder</button>
 
     <div class="privacidade">
@@ -249,6 +273,8 @@
       let reconhecimento = null;
       let recebeuResultado = false;
       let iniciando = false;
+      let houveErro = false;
+      let tentativasPronuncia = 0;
 
       function escapar_(texto) {
         return String(texto || '')
@@ -257,6 +283,40 @@
           .replace(/>/g, '&gt;')
           .replace(/"/g, '&quot;')
           .replace(/'/g, '&#039;');
+      }
+
+
+      function normalizarFala_(texto) {
+        return String(texto || '')
+          .normalize('NFKC')
+          .replace(/[\s，。！？、,.!?;:：；“”‘’'"（）()\-—_]/g, '')
+          .toLowerCase();
+      }
+
+      function normalizarPinyin_(texto) {
+        return String(texto || '')
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^a-z0-9]/gi, '')
+          .toLowerCase();
+      }
+
+      function falaCorrespondeAoAlvo_(texto) {
+        const ouvido = normalizarFala_(texto);
+        const esperado = normalizarFala_(hanzi);
+
+        if (!ouvido || !esperado) return false;
+        if (ouvido === esperado) return true;
+
+        // Aceita uma frase curta que contenha a palavra-alvo, mas não aceita
+        // hipóteses secundárias do reconhecedor como prova de acerto.
+        if (esperado.length >= 2 && ouvido.includes(esperado)) return true;
+
+        if (!/[\u3400-\u9fff]/.test(ouvido) && pinyin) {
+          return normalizarPinyin_(ouvido) === normalizarPinyin_(pinyin);
+        }
+
+        return false;
       }
 
       function urlRetorno_() {
@@ -320,34 +380,11 @@
         return mapa[motivo] || 'Não foi possível concluir o reconhecimento de fala.';
       }
 
-      async function garantirMicrofone_() {
-        if (!window.isSecureContext) {
-          throw new Error('A Câmara do Eco precisa estar publicada em HTTPS.');
-        }
-
-        if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
-          throw new Error('Este navegador não disponibilizou acesso ao microfone.');
-        }
-
-        const fluxo = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true
-          },
-          video: false
-        });
-
-        try {
-          fluxo.getTracks().forEach(function(trilha) {
-            trilha.stop();
-          });
-        } catch (erro) {}
-      }
-
       async function iniciar_() {
         if (reconhecimento || iniciando) return;
         iniciando = true;
+        houveErro = false;
+        recebeuResultado = false;
 
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -362,77 +399,107 @@
         }
 
         btnFalar.disabled = true;
-        btnFalar.textContent = '🎙️ Preparando microfone...';
+        btnFalar.textContent = '🎙️ Abrindo a escuta...';
         definirStatus_(
-          '<div><strong>🎙️ Preparando o microfone.</strong><br><small>Na primeira utilização neste endereço, o navegador pode pedir autorização.</small></div>'
+          '<div><strong>🎙️ Preparando.</strong><br><small>Quando aparecer “Estou ouvindo”, fale a palavra normalmente.</small></div>'
         );
 
-        try {
-          await garantirMicrofone_();
-        } catch (erro) {
-          iniciando = false;
-          const mensagem = String(erro && erro.message || 'O microfone não pôde ser aberto.');
-          definirStatus_(
-            '<div><strong>🔒 Não consegui abrir o microfone.</strong><br><small>' + escapar_(mensagem) + '</small></div>'
-          );
-          btnFalar.disabled = false;
-          btnFalar.textContent = '🎙️ Tentar novamente';
-          return;
-        }
-
-        recebeuResultado = false;
         reconhecimento = new SpeechRecognition();
         reconhecimento.lang = 'zh-CN';
         reconhecimento.continuous = false;
         reconhecimento.interimResults = false;
-        reconhecimento.maxAlternatives = 5;
+        reconhecimento.maxAlternatives = 3;
 
         reconhecimento.onstart = function() {
           iniciando = false;
-          btnFalar.textContent = '🎙️ Ouvindo...';
+          btnFalar.textContent = '🎙️ Estou ouvindo...';
           definirStatus_(
-            '<div><strong>🎙️ Estou ouvindo.</strong><span class="onda"><i></i><i></i><i></i><i></i></span><br>' +
+            '<div><strong>🎙️ Estou ouvindo — fale agora.</strong><span class="onda"><i></i><i></i><i></i><i></i></span><br>' +
             '<small>Diga <b>' + escapar_(hanzi || 'a palavra') + '</b> com naturalidade.</small></div>',
+            'ouvindo'
+          );
+        };
+
+        reconhecimento.onaudiostart = function() {
+          definirStatus_(
+            '<div><strong>🎙️ Microfone ativo — pode falar.</strong><span class="onda"><i></i><i></i><i></i><i></i></span><br>' +
+            '<small>Alvo: <b>' + escapar_(hanzi || 'a palavra') + '</b></small></div>',
             'ouvindo'
           );
         };
 
         reconhecimento.onresult = function(evento) {
           recebeuResultado = true;
-          const alternativas = [];
 
-          for (let i = 0; i < evento.results.length; i++) {
+          let transcricao = '';
+          let alternativas = [];
+
+          for (let i = evento.resultIndex || 0; i < evento.results.length; i++) {
             const resultado = evento.results[i];
+            if (!resultado || !resultado.length) continue;
+
+            if (!transcricao) {
+              transcricao = String(resultado[0].transcript || '').trim();
+            }
+
             for (let j = 0; j < resultado.length; j++) {
               const texto = String(resultado[j].transcript || '').trim();
               if (texto && !alternativas.includes(texto)) alternativas.push(texto);
             }
           }
 
-          const transcricao = alternativas[0] || '';
+          transcricao = String(transcricao || alternativas[0] || '').trim();
+          tentativasPronuncia++;
+
+          const acertou = falaCorrespondeAoAlvo_(transcricao);
+
+          if (!acertou) {
+            definirStatus_(
+              '<div><strong>🌱 Ainda não bateu.</strong><br>' +
+              '<small>Esperado: <b>' + escapar_(hanzi || '—') + '</b><br>' +
+              'Eu ouvi: <b>' + escapar_(transcricao || '—') + '</b><br>' +
+              'Toque em “Tentar novamente” e repita.</small></div>'
+            );
+
+            btnFalar.disabled = false;
+            btnFalar.textContent = '🎙️ Tentar novamente';
+
+            try { reconhecimento.stop(); } catch (erro) {}
+            return;
+          }
+
           definirStatus_(
-            '<div><strong>🏮 Eco reconhecido.</strong><br><small>Ouvi: <b>' + escapar_(transcricao || '—') + '</b><br>Voltando ao Yangtze...</small></div>',
+            '<div><strong>🏮 Pronúncia reconhecida!</strong><br><small>Ouvi: <b>' + escapar_(transcricao || '—') + '</b><br>Voltando ao Yangtze...</small></div>',
             'sucesso'
           );
 
-          btnFalar.textContent = '✅ Reconhecido';
+          btnFalar.textContent = '✅ Correto';
 
           setTimeout(function() {
             voltarAoYangtze_('resultado', {
               transcricao: transcricao,
-              alternativas: alternativas
+              alternativas: [transcricao]
             });
-          }, 650);
+          }, 700);
         };
 
         reconhecimento.onerror = function(evento) {
           iniciando = false;
+          houveErro = true;
           const motivo = String(evento && evento.error || '').toLowerCase();
           const mensagem = mensagemErro_(motivo);
 
-          definirStatus_(
-            '<div><strong>🌱 Não consegui reconhecer.</strong><br><small>' + escapar_(mensagem) + '</small></div>'
-          );
+          if (motivo === 'no-speech') {
+            definirStatus_(
+              '<div><strong>🌱 A escuta terminou antes de captar sua voz.</strong><br>' +
+              '<small>No celular, toque em “Tentar novamente” e fale assim que aparecer “Microfone ativo”.</small></div>'
+            );
+          } else {
+            definirStatus_(
+              '<div><strong>🌱 Não consegui reconhecer.</strong><br><small>' + escapar_(mensagem) + '</small></div>'
+            );
+          }
+
           btnFalar.disabled = false;
           btnFalar.textContent = '🎙️ Tentar novamente';
         };
@@ -440,11 +507,14 @@
         reconhecimento.onend = function() {
           reconhecimento = null;
           iniciando = false;
-          if (!recebeuResultado) {
+
+          if (!recebeuResultado && !houveErro) {
+            definirStatus_(
+              '<div><strong>🌱 A escuta encerrou sem captar uma palavra.</strong><br>' +
+              '<small>Toque novamente e comece a falar quando o microfone estiver ativo.</small></div>'
+            );
             btnFalar.disabled = false;
-            if (btnFalar.textContent === '🎙️ Ouvindo...') {
-              btnFalar.textContent = '🎙️ Tentar novamente';
-            }
+            btnFalar.textContent = '🎙️ Tentar novamente';
           }
         };
 
@@ -476,11 +546,8 @@
         } catch (erro) {}
       });
 
-      // Tenta iniciar sozinho para deixar a travessia fluida.
-      // Se o navegador exigir uma ação extra, o botão permanece disponível.
-      setTimeout(function() {
-        iniciar_();
-      }, 500);
+      // No celular a escuta não inicia sozinha: o aluno escolhe o momento
+      // exato de tocar e falar, evitando que o reconhecimento encerre antes.
     })();
   </script>
 </body>
